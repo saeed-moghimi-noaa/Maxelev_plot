@@ -34,6 +34,21 @@ import sys,os
 from geo_regions import get_region_extent
 from geo_regions import defs
 import numpy as np
+import shapefile   
+from glob import glob
+from math import floor
+from matplotlib import patheffects
+
+from cartopy.io.img_tiles import GoogleTiles
+
+class ShadedReliefESRI(GoogleTiles):
+    # shaded relief
+    def _image_url(self, tile):
+        x, y, z = tile
+        url = ('https://server.arcgisonline.com/ArcGIS/rest/services/' \
+               'World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}.jpg').format(
+               z=z, y=y, x=x)
+        return url
 
 def ReadTri(fmaxele):
 
@@ -80,6 +95,69 @@ def make_map(projection=ccrs.PlateCarree(), xylabels = False):
 
     return fig, ax
 
+def utm_from_lon(lon):
+    """
+    utm_from_lon - UTM zone for a longitude
+
+    Not right for some polar regions (Norway, Svalbard, Antartica)
+
+    :param float lon: longitude
+    :return: UTM zone number
+    :rtype: int
+    """
+    return floor( ( lon + 180 ) / 6) + 1
+
+
+def scale_bar(ax, proj, length, location=(0.5, 0.05), linewidth=3,
+              units='km', m_per_unit=1000):
+    """
+
+    http://stackoverflow.com/a/35705477/1072212
+    ax is the axes to draw the scalebar on.
+    proj is the projection the axes are in
+    location is center of the scalebar in axis coordinates ie. 0.5 is the middle of the plot
+    length is the length of the scalebar in km.
+    linewidth is the thickness of the scalebar.
+    units is the name of the unit
+    m_per_unit is the number of meters in a unit
+    """
+    # find lat/lon center to find best UTM zone
+    x0, x1, y0, y1 = ax.get_extent(proj.as_geodetic())
+    # Projection in metres
+    utm = ccrs.UTM(utm_from_lon((x0+x1)/2))
+    # Get the extent of the plotted area in coordinates in metres
+    x0, x1, y0, y1 = ax.get_extent(utm)
+    # Turn the specified scalebar location into coordinates in metres
+    sbcx, sbcy = x0 + (x1 - x0) * location[0], y0 + (y1 - y0) * location[1]
+    # Generate the x coordinate for the ends of the scalebar
+    bar_xs = [sbcx - length * m_per_unit/2, sbcx + length * m_per_unit/2]
+    # buffer for scalebar
+    buffer = [patheffects.withStroke(linewidth=5, foreground="w")]
+    # Plot the scalebar with buffer
+    ax.plot(bar_xs, [sbcy, sbcy], transform=utm, color='k',
+        linewidth=linewidth, path_effects=buffer)
+    # buffer for text
+    buffer = [patheffects.withStroke(linewidth=3, foreground="w")]
+    # Plot the scalebar label
+    t0 = ax.text(sbcx, sbcy, str(length) + ' ' + units, transform=utm,
+        horizontalalignment='center', verticalalignment='bottom',
+        path_effects=buffer, zorder=2)
+    left = x0+(x1-x0)*0.05
+    # Plot the N arrow
+    t1 = ax.text(left, sbcy, u'\u25B2\nN', transform=utm,
+        horizontalalignment='center', verticalalignment='bottom',
+        path_effects=buffer, zorder=2)
+    # Plot the scalebar without buffer, in case covered by text buffer
+    ax.plot(bar_xs, [sbcy, sbcy], transform=utm, color='k',
+        linewidth=linewidth, zorder=3)
+
+
+
+
+
+
+
+
 ############################
 cdict = {'red': ((0.  , 1  , 1),
                  (0.05, 1  , 1),
@@ -104,7 +182,6 @@ cdict = {'red': ((0.  , 1  , 1),
 jetMinWi = LinearSegmentedColormap('my_colormap',cdict,256)
 cmap = jetMinWi
 
-
 data_dir = '/mnt/c/Users/Saeed.Moghimi/Documents/work/linux_working/02-models/02-adcirc/02-maxelev/data/'
 
 
@@ -116,14 +193,19 @@ title_v4          = 'GESTOFS-Upgrade'
 fund_3month_barry = data_dir + 'maxele_UND_3month_GESTOFS_v4.63.nc'
 title_v4_und          = 'GESTOFS-Upgrade-barry'
 
-fnames = [fv1_opr,   fv4_para, fund_3month_barry]
-titles = [title_opr, title_v4, title_v4_und]
+fnames = [fv1_opr,   fv4_para]#, fund_3month_barry]
+titles = [title_opr, title_v4]#, title_v4_und]
 
 ###
+shpFilePath = '/home/moghimis/linux_working/02-models/02-adcirc/01-meshes/04-GESTOFS-shapefiles/'  
+shplist = glob( shpFilePath + '*.shp')
 
 #regions = ['ike_local', 'ike_region', 'san_delaware','san_jamaica_bay','Tampa_Area_m', 'Marshall','Palau','and_local_lu']    
-regions = ['NYC_Area_m','Port_Arthur_m', 'san_newyork']
+regions = ['san_newyork','Port_Arthur_m',  'Tampa_Area_m','ike_local','ike_region']
 
+
+#regions = []
+#regions.append( 'hsofs_region')
 
 #regions.append( 'and_local_lu')
 #regions = ['puertorico','isa_local','san_newyork','san_delaware','san_jamaica_bay',
@@ -157,7 +239,8 @@ for ifname in range(len(fnames)):
         ### read data #########
         lon,lat,tri,dep,val  = ReadTri(fname)
 
-        fig, ax = make_map()
+
+        fig, ax = make_map(projection=ShadedReliefESRI().crs)
         fig.set_size_inches(9,9)
 
         lim = get_region_extent(region = region)
@@ -165,8 +248,7 @@ for ifname in range(len(fnames)):
         ax.set_extent(extent)
         ax.set_title(titles[ifname])
 
-        ### shoreline
-        cond1 = ax.tricontour(tri,dep ,levels=[0.0]  ,colors='k',linewidth=0.01, alpha= 0.7)
+
         ### maxelev
         if True:
             cf1    = ax.tricontourf(tri,val.data,levels=levels, cmap = cmap , extend='both',alpha = 1.0)#extend='max' )  #,extend='both'
@@ -178,11 +260,26 @@ for ifname in range(len(fnames)):
         ### plot mesh
         if False:
             ax.triplot(tri, 'k-', lw=0.1, alpha=0.5)
-                            
-                                                
-        filename = 'figs/maxelev_' + region + '_'+ titles[ifname]
-        filename = filename.replace('.','-')
-        plt.savefig(filename + '.png',dpi=450)
-        plt.close('all')
 
+        
+        ### shoreline
+        if False:
+            cond1 = ax.tricontour(tri,dep ,levels=[0.0]  ,colors='k',linewidths=[0.1], alpha= 1.0)
+        else:
+            for fshp in shplist[:]:
+                sf = shapefile.Reader(fshp)
+                for shape in sf.shapeRecords():
+                    x = [i[0] for i in shape.shape.points[:]]
+                    y = [i[1] for i in shape.shape.points[:]]
+                    ax.plot(x,y,'k',lw=0.2)
+
+            
+        if True:
+            scale_bar(ax, ax.projection, 10) 
+   
+            
+        filename = 'figs3/maxelev_' + region + '_'+ titles[ifname]
+        filename = filename.replace('.','-')
+        plt.savefig(filename + '.png',dpi=600)
+        plt.close('all')
 
