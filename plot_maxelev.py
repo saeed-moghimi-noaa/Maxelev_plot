@@ -38,17 +38,20 @@ import shapefile
 from glob import glob
 from math import floor
 from matplotlib import patheffects
+from matplotlib.image import imread
 
-from cartopy.io.img_tiles import GoogleTiles
+#from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+#import cartopy.io.img_tiles as cimgt
+#from cartopy.io.img_tiles import GoogleTiles
 
-class ShadedReliefESRI(GoogleTiles):
-    # shaded relief
-    def _image_url(self, tile):
-        x, y, z = tile
-        url = ('https://server.arcgisonline.com/ArcGIS/rest/services/' \
-               'World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}.jpg').format(
-               z=z, y=y, x=x)
-        return url
+# class ShadedReliefESRI(GoogleTiles):
+#     # shaded relief
+#     def _image_url(self, tile):
+#         x, y, z = tile
+#         url = ('https://server.arcgisonline.com/ArcGIS/rest/services/' \
+#                'World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}.jpg').format(
+#                z=z, y=y, x=x)
+#         return url
 
 def ReadTri(fmaxele):
 
@@ -152,12 +155,6 @@ def scale_bar(ax, proj, length, location=(0.5, 0.05), linewidth=3,
         linewidth=linewidth, zorder=3)
 
 
-
-
-
-
-
-
 ############################
 cdict = {'red': ((0.  , 1  , 1),
                  (0.05, 1  , 1),
@@ -193,16 +190,26 @@ title_v4          = 'GESTOFS-Upgrade'
 fund_3month_barry = data_dir + 'maxele_UND_3month_GESTOFS_v4.63.nc'
 title_v4_und          = 'GESTOFS-Upgrade-barry'
 
-fnames = [fv1_opr,   fv4_para]#, fund_3month_barry]
-titles = [title_opr, title_v4]#, title_v4_und]
+
+fv1_opr_c           = data_dir + 'tampa_bay_high_water_estofs.t00z.fields.cwl.maxele.nc'
+title_v1_c          = 'GESTOFS-Operational-C'
+
+fnames = [fv1_opr,   fv4_para, fv1_opr_c ]#, fund_3month_barry]
+titles = [title_opr, title_v4, title_v1_c ]#, title_v4_und]
 
 ###
 shpFilePath = '/home/moghimis/linux_working/02-models/02-adcirc/01-meshes/04-GESTOFS-shapefiles/'  
 shplist = glob( shpFilePath + '*.shp')
 
 #regions = ['ike_local', 'ike_region', 'san_delaware','san_jamaica_bay','Tampa_Area_m', 'Marshall','Palau','and_local_lu']    
-regions = ['san_newyork','Port_Arthur_m',  'Tampa_Area_m','ike_local','ike_region']
+#regions = ['san_newyork','Port_Arthur_m',  'Tampa_Area_m','ike_local','ike_region']
+#regions = ['Palau','and_local_lu'] 
+regions = ['Tampa_Area_m','san_jamaica_bay'] 
 
+
+
+
+bkg_img = '/home/moghimis/linux_working/opt/NE1_50M_SR_W/NE1_50M_SR_W.tif'
 
 #regions = []
 #regions.append( 'hsofs_region')
@@ -215,9 +222,6 @@ regions = ['san_newyork','Port_Arthur_m',  'Tampa_Area_m','ike_local','ike_regio
 #regions.append( 'and_local_lu')
 #regions.append( 'san_area2')
 #regions.append( 'san_track')
-
-
-
 
 
 for ifname in range(len(fnames)):
@@ -239,19 +243,28 @@ for ifname in range(len(fnames)):
         ### read data #########
         lon,lat,tri,dep,val  = ReadTri(fname)
 
+        #stamen_terrain = cimgt.Stamen('terrain-background')
+        #fig, ax = make_map( projection=stamen_terrain.crs)
+        #fig, ax = make_map(projection=ShadedReliefESRI().crs)
+        #ax.add_image(ShadedReliefESRI(), 10, zorder=-1)
 
-        fig, ax = make_map(projection=ShadedReliefESRI().crs)
+        fig, ax = make_map()
         fig.set_size_inches(9,9)
 
         lim = get_region_extent(region = region)
         extent = [lim['xmin'],lim['xmax'],lim['ymin'],lim['ymax']]       
         ax.set_extent(extent)
         ax.set_title(titles[ifname])
+        
+        source_proj = ccrs.PlateCarree()
+        ax.imshow(imread(bkg_img), origin='upper', transform=source_proj, 
+          extent=extent,zorder=0)
 
+        #sys.exit()
 
         ### maxelev
         if True:
-            cf1    = ax.tricontourf(tri,val.data,levels=levels, cmap = cmap , extend='both',alpha = 1.0)#extend='max' )  #,extend='both'
+            cf1    = ax.tricontourf(tri,val.data,levels=levels, cmap = cmap , extend='both',alpha = 1.0,zorder=2)
             cb     = plt.colorbar(cf1,shrink = 0.3,ticks = [vmin,(vmin+vmax)/2,vmax])   
             cb.set_label('TWL [m]')
         else:
@@ -263,20 +276,21 @@ for ifname in range(len(fnames)):
 
         
         ### shoreline
-        if False:
-            cond1 = ax.tricontour(tri,dep ,levels=[0.0]  ,colors='k',linewidths=[0.1], alpha= 1.0)
-        else:
-            for fshp in shplist[:]:
-                sf = shapefile.Reader(fshp)
-                for shape in sf.shapeRecords():
-                    x = [i[0] for i in shape.shape.points[:]]
-                    y = [i[1] for i in shape.shape.points[:]]
-                    ax.plot(x,y,'k',lw=0.2)
+        if True:
+            if False:
+                cond1 = ax.tricontour(tri,dep ,levels=[0.0]  ,colors='k',linewidths=[0.5], alpha= 1.0,zorder=3)
+            else:
+                print ('[info:] Read shapefiles ...')
+                for fshp in shplist[:]:
+                    sf = shapefile.Reader(fshp)
+                    for shape in sf.shapeRecords():
+                        x = [i[0] for i in shape.shape.points[:]]
+                        y = [i[1] for i in shape.shape.points[:]]
+                        ax.plot(x,y,'k',lw=0.2)
 
             
         if True:
             scale_bar(ax, ax.projection, 10) 
-   
             
         filename = 'figs3/maxelev_' + region + '_'+ titles[ifname]
         filename = filename.replace('.','-')
